@@ -1,0 +1,114 @@
+name: Update upstream release
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Re-verify and re-hash the current release
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # 03:47 in Berlin during daylight-saving time, 02:47 in winter.
+    - cron: "47 1 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: helium-upstream-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@61cbfe2efc2d4e7a8a6d56967c3c1058e846c858 # v3.21.9
+
+      - name: Resolve, verify, and hash latest release
+        id: update
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FORCE_UPDATE: ${{ github.event.inputs.force || 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          old_version="$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";.*/\1/p' version.nix)"
+          test -n "$old_version"
+
+          args=()
+          if [ "$FORCE_UPDATE" = "true" ]; then
+            args+=(--force)
+          fi
+          python3 scripts/update.py "${args[@]}"
+
+          new_version="$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";.*/\1/p' version.nix)"
+          test -n "$new_version"
+
+          unexpected="$(git diff --name-only | grep -Ev '^version\.nix$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected files changed:" >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 1
+          fi
+
+          if git diff --quiet -- version.nix; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Helium is current: $new_version"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$new_version" >> "$GITHUB_OUTPUT"
+            echo "Helium update detected: $old_version -> $new_version"
+            git --no-pager diff --check
+            git --no-pager diff -- version.nix
+          fi
+
+      - name: Validate updated package
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix flake lock
+          git diff --exit-code -- flake.lock
+          nix flake show --no-write-lock-file
+          nix flake check --no-write-lock-file --print-build-logs
+          nix build .#helium --no-write-lock-file --print-build-logs
+          test -x ./result/bin/helium
+          ./result/bin/helium --version | grep -F "${{ steps.update.outputs.version }}"
+
+      - name: Publish validated update
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.update.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || {
+            echo "main advanced during validation; leaving publication to the next run" >&2
+            exit 1
+          }
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- version.nix
+          git commit -m "chore(update): Helium to ${VERSION}"
+
+          git remote set-url origin \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin HEAD:main
+          git remote set-url origin \
+            "https://github.com/${GITHUB_REPOSITORY}.git"
