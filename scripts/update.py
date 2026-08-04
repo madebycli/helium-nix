@@ -28,7 +28,7 @@ class UpdateError(RuntimeError):
     """A safe, user-facing update failure."""
 
 
-def request(url: str) -> urllib.request.Request:
+def api_request(url: str) -> urllib.request.Request:
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "madebycli/helium-nix updater",
@@ -40,9 +40,18 @@ def request(url: str) -> urllib.request.Request:
     return urllib.request.Request(url, headers=headers)
 
 
+def asset_request(url: str) -> urllib.request.Request:
+    # Release assets are public. Do not forward the GitHub Actions token through
+    # redirects to GitHub's asset-storage hosts.
+    return urllib.request.Request(
+        url,
+        headers={"User-Agent": "madebycli/helium-nix updater"},
+    )
+
+
 def read_json(url: str) -> dict[str, Any]:
     try:
-        with urllib.request.urlopen(request(url), timeout=45) as response:
+        with urllib.request.urlopen(api_request(url), timeout=45) as response:
             payload = json.load(response)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
         raise UpdateError(f"Could not read the official release API: {error}") from error
@@ -99,7 +108,7 @@ def current_version() -> str:
 
 def download(url: str, target: Path) -> None:
     try:
-        with urllib.request.urlopen(request(url), timeout=120) as response:
+        with urllib.request.urlopen(asset_request(url), timeout=180) as response:
             with target.open("wb") as output:
                 shutil.copyfileobj(response, output, length=1024 * 1024)
     except (urllib.error.URLError, TimeoutError, OSError) as error:
@@ -139,9 +148,11 @@ def verify_signature(archive: Path, signature: Path, home: Path) -> None:
         ]
     )
     imported = {
-        line.split(":")[9]
+        fields[9]
         for line in fingerprints.splitlines()
-        if line.startswith("fpr:") and len(line.split(":")) > 9
+        if line.startswith("fpr:")
+        for fields in [line.split(":")]
+        if len(fields) > 9
     }
     if EXPECTED_FINGERPRINT not in imported:
         raise UpdateError("The pinned Helium signing key has an unexpected fingerprint")
