@@ -16,7 +16,7 @@ concurrency:
 jobs:
   package:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     steps:
       - name: Checkout
@@ -27,12 +27,14 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@61cbfe2efc2d4e7a8a6d56967c3c1058e846c858 # v3.21.9
 
-      - name: Verify repository metadata
+      - name: Verify signed release metadata
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/update.py
+          python3 scripts/update.py --force
+          git diff --exit-code -- version.nix
           python3 scripts/update.py --check
           nix flake lock
           git diff --exit-code -- flake.lock
