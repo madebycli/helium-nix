@@ -9,8 +9,8 @@ on:
         default: false
         type: boolean
   schedule:
-    # GitHub Actions' shortest supported schedule interval is five minutes.
-    - cron: "*/5 * * * *"
+    # 03:47 in Berlin during daylight-saving time, 02:47 in winter.
+    - cron: "47 1 * * *"
 
 permissions:
   contents: write
