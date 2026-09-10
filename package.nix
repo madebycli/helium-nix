@@ -28,8 +28,10 @@ let
     freetype
     gdk-pixbuf
     glib
+    gsettings-desktop-schemas
     gtk3
     libdrm
+    libglvnd
     libnotify
     libx11
     libxcb
@@ -60,6 +62,7 @@ pkgs.stdenv.mkDerivation {
   nativeBuildInputs = [
     pkgs.autoPatchelfHook
     pkgs.makeWrapper
+    pkgs.wrapGAppsHook3
   ];
 
   buildInputs = runtimeLibraries;
