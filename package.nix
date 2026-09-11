@@ -92,8 +92,13 @@ pkgs.stdenv.mkDerivation {
 
     cp -a "$heliumRoot/." "$out/opt/helium/"
 
+    # GTK keeps its compiled GSettings schemas in a versioned subdirectory
+    # rather than in the ordinary share root. The upstream binary does not
+    # know the Nix store layout, so expose that directory explicitly. Without
+    # it GTK aborts as soon as the file chooser settings are read.
     makeWrapper "$out/opt/helium/helium" "$out/bin/helium" \
       --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath runtimeLibraries}" \
+      --prefix XDG_DATA_DIRS : "${pkgs.gtk3}/share/gsettings-schemas/gtk+3-${pkgs.gtk3.version}" \
       --prefix PATH : "${lib.makeBinPath [ pkgs.coreutils pkgs.xdg-utils ]}" \
       --add-flags "--disable-breakpad"
 
