@@ -6,7 +6,7 @@
   <a href="https://github.com/madebycli/helium-nix/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/madebycli/helium-nix/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/madebycli/helium-nix/actions/workflows/update-upstream.yml"><img alt="Upstream update" src="https://github.com/madebycli/helium-nix/actions/workflows/update-upstream.yml/badge.svg?branch=main"></a>
   <img alt="Nix Flake" src="https://img.shields.io/badge/Nix-Flake-5277C3?logo=nixos&logoColor=white">
-  <img alt="Platform" src="https://img.shields.io/badge/platform-x86__64--linux-8c7cff">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-x86__64%20%7C%20arm64-8c7cff">
 </p>
 
 <p align="center">
@@ -34,16 +34,23 @@ Upgrade profile-managed packages:
 nix profile upgrade --all --refresh
 ```
 
+## Supported systems
+
+- `x86_64-linux`
+- `aarch64-linux`
+
+Both architectures use the matching official signed Linux tarball and are tested on native GitHub-hosted Linux runners.
+
 ## What this repository provides
 
-- A native Nix package built from Helium's official Linux tarball
+- Native Nix packages built from Helium's official Linux tarballs
 - Desktop entry and application icon integration
 - Runtime libraries patched into a reproducible Nix closure
-- A flake package, app, overlay, checks, and development shell
+- Flake packages, apps, overlays, checks, and development shells for both supported Linux architectures
 - Daily upstream release checks
 - A safe manual update button in GitHub Actions
 - Signature verification with Helium's published signing key
-- Build and runtime validation before any automated update reaches `main`
+- Native x86_64 and ARM64 build/runtime validation in CI
 
 This repository packages Helium; it does not build Chromium or Helium from source.
 
@@ -72,13 +79,14 @@ Add the flake input and install the package:
 
 ## Flake outputs
 
+For both `x86_64-linux` and `aarch64-linux`:
+
 ```text
-packages.x86_64-linux.{default,helium}
-apps.x86_64-linux.{default,helium}
-checks.x86_64-linux
-legacyPackages.x86_64-linux.helium
-overlays.default
-devShells.x86_64-linux.default
+packages.<system>.{default,helium}
+apps.<system>.{default,helium}
+checks.<system>
+legacyPackages.<system>.helium
+devShells.<system>.default
 ```
 
 ## Automatic updates
@@ -93,18 +101,18 @@ Actions → Update upstream release → Run workflow
 
 A manual run does not move or cancel the next scheduled run. The workflow uses one concurrency group, so scheduled and manual runs cannot publish over each other.
 
-For a new release, the workflow:
+For a new release, the updater:
 
 1. reads the latest stable release from `imputnet/helium-linux`;
-2. selects the exact `x86_64` Linux tarball and detached signature;
-3. verifies the tarball against Helium's published signing key;
-4. computes the Nix SHA-256 hash locally;
+2. requires the exact `x86_64` and `arm64` Linux tarballs plus their detached signatures;
+3. verifies both tarballs against Helium's published signing key;
+4. computes and records a separate Nix SHA-256 hash for each supported system;
 5. changes only `version.nix`;
-6. evaluates, checks, builds, and launches the packaged version check;
+6. evaluates, checks, builds, and launches the packaged version check before publication;
 7. confirms that `main` did not move during validation;
-8. publishes the update only after every validation succeeds.
+8. publishes the update only after validation succeeds.
 
-Running the workflow while Helium is already current is safe and produces no commit.
+The regular CI then builds and executes the package natively on both x86_64 and ARM64. Running the update workflow while Helium is already current is safe and produces no commit.
 
 ## Local update check
 
@@ -135,8 +143,10 @@ nix build .#helium --no-write-lock-file --print-build-logs
 ./result/bin/helium --version
 ```
 
-## Upstream and licensing
+## Licensing
+
+The packaging code in this repository is licensed under GPL-3.0-only. Helium Browser, Chromium, and bundled third-party components retain their own upstream licenses.
 
 Helium Browser and its official Linux builds are maintained by the [`imputnet`](https://github.com/imputnet) project. This repository is an independent Nix packaging integration and is not an official Helium distribution channel.
 
-See [`NOTICE.md`](NOTICE.md) for source, signature, and licensing information.
+See [`NOTICE.md`](NOTICE.md) for source, signature, and upstream licensing information.
