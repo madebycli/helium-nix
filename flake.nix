@@ -6,54 +6,91 @@
   outputs =
     { self, nixpkgs }:
     let
-      system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-      helium = import ./package.nix { inherit pkgs system; };
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+      packageFor =
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        import ./package.nix { inherit pkgs system; };
     in
     {
-      packages.${system} = {
-        inherit helium;
-        default = helium;
-      };
+      packages = forAllSystems (
+        system:
+        let
+          helium = packageFor system;
+        in
+        {
+          inherit helium;
+          default = helium;
+        }
+      );
 
-      apps.${system} = {
-        helium = {
-          type = "app";
-          program = "${helium}/bin/helium";
-        };
-        default = self.apps.${system}.helium;
-      };
+      apps = forAllSystems (
+        system:
+        let
+          helium = packageFor system;
+        in
+        {
+          helium = {
+            type = "app";
+            program = "${helium}/bin/helium";
+          };
+          default = self.apps.${system}.helium;
+        }
+      );
 
-      checks.${system} = {
-        inherit helium;
+      checks = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          helium = packageFor system;
+        in
+        {
+          inherit helium;
 
-        release-metadata = pkgs.runCommand "helium-release-metadata" { } ''
-          set -euo pipefail
-          version="${helium.version}"
-          test -n "$version"
-          test -x ${helium}/bin/helium
-          ${helium}/bin/helium --version > "$out"
-          grep -F "$version" "$out"
-        '';
-      };
+          release-metadata = pkgs.runCommand "helium-release-metadata" { } ''
+            set -euo pipefail
+            version="${helium.version}"
+            test -n "$version"
+            test -x ${helium}/bin/helium
+            ${helium}/bin/helium --version > "$out"
+            grep -F "$version" "$out"
+          '';
+        }
+      );
 
-      legacyPackages.${system}.helium = helium;
+      legacyPackages = forAllSystems (system: {
+        helium = packageFor system;
+      });
 
       overlays.default = final: _prev:
-        nixpkgs.lib.optionalAttrs (final.stdenv.hostPlatform.system == system) {
+        nixpkgs.lib.optionalAttrs (builtins.elem final.stdenv.hostPlatform.system systems) {
           helium = import ./package.nix {
             pkgs = final;
-            inherit system;
+            system = final.stdenv.hostPlatform.system;
           };
         };
 
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          git
-          gnupg
-          nixfmt-rfc-style
-          python3
-        ];
-      };
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          default = pkgs.mkShell {
+            packages = with pkgs; [
+              git
+              gnupg
+              nixfmt-rfc-style
+              python3
+            ];
+          };
+        }
+      );
     };
 }
