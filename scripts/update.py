@@ -22,6 +22,10 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION_FILE = ROOT / "version.nix"
 KEY_FILE = ROOT / "upstream" / "helium-signing-key.asc"
 VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){3}$")
+ARCHITECTURES = {
+    "x86_64-linux": "x86_64",
+    "aarch64-linux": "arm64",
+}
 
 
 class UpdateError(RuntimeError):
@@ -61,7 +65,7 @@ def read_json(url: str) -> dict[str, Any]:
     return payload
 
 
-def latest_release() -> tuple[str, str, str]:
+def latest_release() -> tuple[str, dict[str, tuple[str, str]]]:
     release = read_json(API_URL)
     if release.get("draft") is True or release.get("prerelease") is True:
         raise UpdateError("The latest GitHub release is not a stable published release")
@@ -70,8 +74,6 @@ def latest_release() -> tuple[str, str, str]:
     if not VERSION_RE.fullmatch(version):
         raise UpdateError(f"Unexpected Helium release tag: {version!r}")
 
-    asset_name = f"helium-{version}-x86_64_linux.tar.xz"
-    signature_name = f"{asset_name}.asc"
     assets = release.get("assets")
     if not isinstance(assets, list):
         raise UpdateError("The official release contains no asset list")
@@ -85,17 +87,23 @@ def latest_release() -> tuple[str, str, str]:
         if isinstance(name, str) and isinstance(url, str):
             urls[name] = url
 
-    if asset_name not in urls:
-        available = ", ".join(sorted(urls))
-        raise UpdateError(
-            f"Expected official asset {asset_name!r}; available assets: {available}"
-        )
-    if signature_name not in urls:
-        raise UpdateError(
-            f"The official detached signature {signature_name!r} is missing"
-        )
+    resolved: dict[str, tuple[str, str]] = {}
+    for system, platform in ARCHITECTURES.items():
+        asset_name = f"helium-{version}-{platform}_linux.tar.xz"
+        signature_name = f"{asset_name}.asc"
+        if asset_name not in urls:
+            available = ", ".join(sorted(urls))
+            raise UpdateError(
+                f"Expected official asset {asset_name!r} for {system}; "
+                f"available assets: {available}"
+            )
+        if signature_name not in urls:
+            raise UpdateError(
+                f"The official detached signature {signature_name!r} is missing"
+            )
+        resolved[system] = (urls[asset_name], urls[signature_name])
 
-    return version, urls[asset_name], urls[signature_name]
+    return version, resolved
 
 
 def current_version() -> str:
@@ -134,7 +142,7 @@ def run(command: list[str], *, env: dict[str, str] | None = None) -> str:
 
 
 def verify_signature(archive: Path, signature: Path, home: Path) -> None:
-    home.mkdir(mode=0o700)
+    home.mkdir(mode=0o700, exist_ok=True)
     run(["gpg", "--batch", "--homedir", str(home), "--import", str(KEY_FILE)])
 
     fingerprints = run(
@@ -177,14 +185,20 @@ def nix_hash(path: Path) -> str:
     return value
 
 
-def write_version(version: str, hash_value: str) -> None:
-    VERSION_FILE.write_text(
-        "{\n"
-        f'  version = "{version}";\n'
-        f'  hash = "{hash_value}";\n'
-        "}\n",
-        encoding="utf-8",
-    )
+def write_version(version: str, hashes: dict[str, str]) -> None:
+    missing = [system for system in ARCHITECTURES if system not in hashes]
+    if missing:
+        raise UpdateError(f"Missing release hashes for: {', '.join(missing)}")
+
+    lines = [
+        "{",
+        f'  version = "{version}";',
+        "  hashes = {",
+    ]
+    for system in ARCHITECTURES:
+        lines.append(f'    "{system}" = "{hashes[system]}";')
+    lines.extend(["  };", "}", ""])
+    VERSION_FILE.write_text("\n".join(lines), encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
@@ -205,7 +219,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     packaged = current_version()
-    latest, archive_url, signature_url = latest_release()
+    latest, release_assets = latest_release()
 
     if args.check:
         if packaged == latest:
@@ -218,21 +232,26 @@ def main() -> int:
         print(f"Helium is current: {packaged}")
         return 0
 
+    hashes: dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix="helium-update-") as directory:
         work = Path(directory)
-        archive = work / f"helium-{latest}-x86_64_linux.tar.xz"
-        signature = work / f"{archive.name}.asc"
         gnupg_home = work / "gnupg"
 
-        print(f"Downloading signed Helium release {latest}")
-        download(archive_url, archive)
-        download(signature_url, signature)
-        verify_signature(archive, signature, gnupg_home)
-        hash_value = nix_hash(archive)
+        for system, platform in ARCHITECTURES.items():
+            archive_url, signature_url = release_assets[system]
+            archive = work / f"helium-{latest}-{platform}_linux.tar.xz"
+            signature = work / f"{archive.name}.asc"
 
-    write_version(latest, hash_value)
+            print(f"Downloading signed Helium release {latest} for {system}")
+            download(archive_url, archive)
+            download(signature_url, signature)
+            verify_signature(archive, signature, gnupg_home)
+            hashes[system] = nix_hash(archive)
+
+    write_version(latest, hashes)
     print(f"Updated Helium metadata: {packaged} -> {latest}")
-    print(f"hash: {hash_value}")
+    for system in ARCHITECTURES:
+        print(f"{system}: {hashes[system]}")
     return 0
 
 

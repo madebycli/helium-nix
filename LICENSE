@@ -1,0 +1,8 @@
+SPDX-License-Identifier: GPL-3.0-only
+
+The packaging code in this repository is licensed under the GNU General Public License, version 3 only (GPL-3.0-only).
+
+The complete license text is available from the Free Software Foundation at:
+https://www.gnu.org/licenses/gpl-3.0.txt
+
+This repository packages third-party software. The repository license applies to the packaging code maintained here and does not replace, relicense, or otherwise alter the licenses of Helium Browser, Chromium, or bundled third-party components. See NOTICE.md for upstream licensing information.

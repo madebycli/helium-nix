@@ -4,15 +4,17 @@ let
   inherit (pkgs) lib;
   release = import ./version.nix;
 
-  platform =
-    {
-      x86_64-linux = "x86_64";
-    }
-    .${system} or (throw "Helium is not packaged for ${system}");
+  platforms = {
+    x86_64-linux = "x86_64";
+    aarch64-linux = "arm64";
+  };
+
+  platform = platforms.${system} or (throw "Helium is not packaged for ${system}");
+  hash = release.hashes.${system} or (throw "Helium has no pinned release hash for ${system}");
 
   src = pkgs.fetchurl {
     url = "https://github.com/imputnet/helium-linux/releases/download/${release.version}/helium-${release.version}-${platform}_linux.tar.xz";
-    inherit (release) hash;
+    inherit hash;
   };
 
   runtimeLibraries = with pkgs; [
@@ -141,7 +143,7 @@ pkgs.stdenv.mkDerivation {
     homepage = "https://github.com/imputnet/helium-linux";
     license = with lib.licenses; [ gpl3Only bsd3 ];
     mainProgram = "helium";
-    platforms = [ "x86_64-linux" ];
+    platforms = builtins.attrNames platforms;
     sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
   };
 }
