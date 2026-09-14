@@ -1,5 +1,5 @@
 name: CI
-# Verifies the current public direct-repository installation path.
+# Verifies the current public direct-repository installation path on both supported Linux architectures.
 
 on:
   push:
@@ -16,7 +16,18 @@ concurrency:
 
 jobs:
   package:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            verify_metadata: true
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            verify_metadata: false
+
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
 
     steps:
@@ -29,6 +40,7 @@ jobs:
         uses: DeterminateSystems/determinate-nix-action@61cbfe2efc2d4e7a8a6d56967c3c1058e846c858 # v3.21.9
 
       - name: Verify signed release metadata
+        if: matrix.verify_metadata
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -49,7 +61,7 @@ jobs:
       - name: Build Helium
         run: |
           set -euo pipefail
-          nix build .#helium --no-write-lock-file --print-build-logs
+          nix build ".#packages.${{ matrix.system }}.helium" --no-write-lock-file --print-build-logs
           test -x ./result/bin/helium
           ./result/bin/helium --version
 
